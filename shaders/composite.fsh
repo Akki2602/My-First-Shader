@@ -39,7 +39,7 @@ void main() {
     col = (col - 0.5) * 1.35 + 0.5;
 
     // =========================
-    // DEPTH-BASED FOG
+    // DEPTH-BASED FOG (FIXED)
     // =========================
     float depth = texture(depthtex0, uv).r;
 
@@ -48,52 +48,63 @@ void main() {
 
     float linearDepth = (2.0 * near) / (far + near - depth * (far - near));
 
-    float fog = smoothstep(0.1, 0.6, linearDepth);
+    float fog = smoothstep(0.15, 1., linearDepth);
 
-    vec3 fogColor = vec3(0.0, 0.2, 0.25);
+    vec3 fogColor = vec3(0.0, 0.18, 0.22);
 
     col = mix(col, fogColor, fog);
+
+    // =========================
+    // HEIGHT-BASED FOG
+    // =========================
+
+    // Height factor (bottom = more fog)
+    float heightFog = smoothstep(0.8, 0.2, uv.y);
+
+    // Combine with depth fog
+    float finalFog = fog * 0.7 + heightFog * 0.5;
+
+    // Clamp
+    finalFog = clamp(finalFog, 0.0, 1.0);
+
+    // Apply
+    col = mix(col, fogColor, finalFog);
 
     // =========================
     // GLOBAL DARKNESS
     // =========================
     col *= 0.7;
 
-// =========================
-// WET SURFACE (PROPER APPROACH)
-// =========================
+    // Detect sky
+float sky = step(0.999, depth);
 
 
+// Very faint sun visibility
+float sun = smoothstep(0.85, 1.0, lum);
+col += vec3(0.8, 0.7, 0.5) * sun * sky * 0.08;
 
-// Treat farther pixels as ground-like
-float ground = smoothstep(0.5, 1.0, depth);
+    // =========================
+    // WET & DAMP SURFACES (IMPROVED)
+    // =========================
 
-// Brightness of surface
-float brightness = dot(col, vec3(0.299, 0.587, 0.114));
+    // Ground approximation
+    float ground = smoothstep(0.5, 1.0, depth);
 
-// Wet surfaces are darker and less reflective in bright areas
-float wetMask = ground * (1.0 - brightness);
+    float brightness = dot(col, vec3(0.299, 0.587, 0.114));
 
-// --- 1. Darken (damp absorption) ---
-col *= mix(1.0, 0.65, wetMask);
+    // Wetness mask
+    float wet = ground * (1.0 - brightness);
 
-// --- 2. Slight cold tint (wet look) ---
-vec3 wetTint = vec3(0.0, 0.08, 0.12);
-col += wetTint * wetMask * 0.4;
+    // --- Darkening (absorption) ---
+    col *= mix(1.0, 0.68, wet);
 
-// --- 3. Soft specular (no screen-center bias) ---
-// Use brightness contrast instead of position
-float spec = pow(max(0.0, 1.0 - brightness), 3.0);
+    // --- Cooler damp tint ---
+    vec3 dampTint = vec3(0.0, 0.06, 0.1);
+    col += dampTint * wet * 0.5;
 
-// Only in wet areas
-spec *= wetMask;
-
-// Subtle highlight color
-vec3 specColor = vec3(0.6, 0.7, 0.8);
-
-// Apply gently
-col += specColor * spec * 0.1;
-
+    // --- Soft specular highlight ---
+    float spec = pow(max(0.0, 1.0 - brightness), 2.5);
+    spec *= wet;
 
 
     // =========================
