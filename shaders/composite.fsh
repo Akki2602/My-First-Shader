@@ -22,11 +22,11 @@ void main() {
     // =========================
     vec3 col = texture(colortex0, uv).rgb;
 
-    // =========================
-    // RE2 COLOR GRADING
-    // =========================
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
 
+    // =========================
+    // COLOR GRADING
+    // =========================
     vec3 shadows = vec3(0.0, 0.25, 0.35);
     vec3 highlights = vec3(0.8, 0.6, 0.4);
 
@@ -49,66 +49,57 @@ void main() {
     float linearDepth = (2.0 * near) / (far + near - depth * (far - near));
 
     // =========================
-    // FLASHLIGHT (SCREEN-SPACE)
+    // FLASHLIGHT
     // =========================
-
-    // Centered beam
     vec2 center = vec2(0.5, 0.5);
-    vec2 dir = uv - center;
+    float distFromCenter = length(uv - center);
 
-    float distFromCenter = length(dir);
+    // tighter, more focused beam
+    float cone = smoothstep(0.25, 0.0, distFromCenter);
 
-    // Cone shape (circular in screen space)
-    float cone = smoothstep(0.3, 0.0, distFromCenter);
+    float depthFade = clamp(1.0 - linearDepth * 1.4, 0.0, 1.0);
+    float groundBoost = smoothstep(0.25, 1.0, uv.y);
 
-    // Depth attenuation (stronger close, fades far)
-    float depthFade = clamp(1.0 - linearDepth * 1.5, 0.0, 1.0);
-
-    col *= 1.0 - (1.0 - cone) * 0.6;
-
-    // Ground bias (bottom of screen stronger)
-    float groundBoost = smoothstep(0.3, 1.0, uv.y);
-
-    // Flicker
-    float flicker = 0.95 + 0.05 * sin(frameTimeCounter * 12.0);
+    float flicker = 0.96 + 0.04 * sin(frameTimeCounter * 10.0);
 
     float flashlight = cone * depthFade * groundBoost * flicker;
 
     vec3 flashlightColor = vec3(1.0, 0.95, 0.85);
 
-    col += flashlight * flashlightColor * 1.2;
+    // strong darkness outside beam (core horror effect)
+    float darknessMask = 1.0 - cone;
+    col *= mix(1.0, 0.35, darknessMask);
+
+    // apply flashlight (stronger)
+    col += flashlight * flashlightColor * 1.8;
 
     // =========================
-    // FOG (ENHANCED WITH LIGHT)
+    // FOG
     // =========================
-    float fog = smoothstep(0.15, 0.75, linearDepth);
+    float fog = smoothstep(0.1, 0.65, linearDepth);
 
-    vec3 fogColor = vec3(0.0, 0.18, 0.22);
+    vec3 fogColor = vec3(0.0, 0.22, 0.18);
 
-    // Light interacts with fog (beam visibility)
+    // volumetric light (controlled, not overblown)
     float volumetric = cone * fog * depthFade;
-    fogColor += flashlightColor * volumetric * 0.6;
+    vec3 fogLit = fogColor + flashlightColor * volumetric * 0.4;
 
-    col = mix(col, fogColor, fog);
+    col = mix(col, fogLit, fog);
 
-    // =========================
-    // HEIGHT-BASED FOG
-    // =========================
-    float heightFog = smoothstep(0.8, 0.2, uv.y);
+    // height fog
+    float heightFog = smoothstep(0.85, 0.2, uv.y);
+    float finalFog = clamp(fog * 0.7 + heightFog * 0.4, 0.0, 1.0);
 
-    float finalFog = fog * 0.7 + heightFog * 0.5;
-    finalFog = clamp(finalFog, 0.0, 1.0);
-
-    col = mix(col, fogColor, finalFog);
+    col = mix(col, fogLit, finalFog);
 
     // =========================
     // GLOBAL DARKNESS
     // =========================
-    col *= 0.8;
+    col *= 0.85;
 
     float sky = step(0.999, depth);
     float sun = smoothstep(0.85, 1.0, lum);
-    col += vec3(0.8, 0.7, 0.5) * sun * sky * 0.08;
+    col += vec3(0.8, 0.7, 0.5) * sun * sky * 0.06;
 
     // =========================
     // WET SURFACES
@@ -118,10 +109,10 @@ void main() {
 
     float wet = ground * (1.0 - brightness);
 
-    col *= mix(1.0, 0.68, wet);
+    col *= mix(1.0, 0.7, wet);
 
     vec3 dampTint = vec3(0.0, 0.06, 0.1);
-    col += dampTint * wet * 0.5;
+    col += dampTint * wet * 0.4;
 
     // =========================
     // VIGNETTE
@@ -131,7 +122,7 @@ void main() {
     col *= vignette;
 
     // =========================
-    // SPORES
+    // SPORES (IMPROVED VISIBILITY)
     // =========================
     vec3 spores = vec3(0.0);
 
@@ -152,22 +143,22 @@ void main() {
 
         float d = distance(uv, pos);
 
-        float particle = smoothstep(0.01, 0.0, d);
+        float particle = smoothstep(0.012, 0.0, d);
 
-        float visibility = smoothstep(0.6, 0.2, lum);
+        float visibility = smoothstep(0.65, 0.2, lum);
 
         spores += particle * visibility;
     }
 
     vec3 sporeColor = vec3(0.9, 0.85, 0.7);
 
-    // Make spores glow in flashlight beam
-    col += spores * sporeColor * (0.08 + flashlight * 0.3);
+    // stronger in flashlight beam
+    col += spores * sporeColor * (0.05 + flashlight * 0.6);
 
     // =========================
     // FILM GRAIN
     // =========================
-    float noise = rand(uv + frameTimeCounter) * 0.03;
+    float noise = rand(uv + frameTimeCounter) * 0.025;
     col += noise;
 
     color = vec4(col, 1.0);
