@@ -39,7 +39,7 @@ void main() {
     col = (col - 0.5) * 1.35 + 0.5;
 
     // =========================
-    // DEPTH-BASED FOG (FIXED)
+    // DEPTH
     // =========================
     float depth = texture(depthtex0, uv).r;
 
@@ -48,65 +48,80 @@ void main() {
 
     float linearDepth = (2.0 * near) / (far + near - depth * (far - near));
 
+    // =========================
+    // FLASHLIGHT (SCREEN-SPACE)
+    // =========================
+
+    // Centered beam
+    vec2 center = vec2(0.5, 0.5);
+    vec2 dir = uv - center;
+
+    float distFromCenter = length(dir);
+
+    // Cone shape (circular in screen space)
+    float cone = smoothstep(0.3, 0.0, distFromCenter);
+
+    // Depth attenuation (stronger close, fades far)
+    float depthFade = clamp(1.0 - linearDepth * 1.5, 0.0, 1.0);
+
+    col *= 1.0 - (1.0 - cone) * 0.6;
+
+    // Ground bias (bottom of screen stronger)
+    float groundBoost = smoothstep(0.3, 1.0, uv.y);
+
+    // Flicker
+    float flicker = 0.95 + 0.05 * sin(frameTimeCounter * 12.0);
+
+    float flashlight = cone * depthFade * groundBoost * flicker;
+
+    vec3 flashlightColor = vec3(1.0, 0.95, 0.85);
+
+    col += flashlight * flashlightColor * 1.2;
+
+    // =========================
+    // FOG (ENHANCED WITH LIGHT)
+    // =========================
     float fog = smoothstep(0.15, 0.75, linearDepth);
 
     vec3 fogColor = vec3(0.0, 0.18, 0.22);
+
+    // Light interacts with fog (beam visibility)
+    float volumetric = cone * fog * depthFade;
+    fogColor += flashlightColor * volumetric * 0.6;
 
     col = mix(col, fogColor, fog);
 
     // =========================
     // HEIGHT-BASED FOG
     // =========================
-
-    // Height factor (bottom = more fog)
     float heightFog = smoothstep(0.8, 0.2, uv.y);
 
-    // Combine with depth fog
     float finalFog = fog * 0.7 + heightFog * 0.5;
-
-    // Clamp
     finalFog = clamp(finalFog, 0.0, 1.0);
 
-    // Apply
     col = mix(col, fogColor, finalFog);
 
     // =========================
     // GLOBAL DARKNESS
     // =========================
-
     col *= 0.8;
 
-    // Detect sky
-float sky = step(0.999, depth);
-
-
-// Very faint sun visibility
-float sun = smoothstep(0.85, 1.0, lum);
-col += vec3(0.8, 0.7, 0.5) * sun * sky * 0.08;
+    float sky = step(0.999, depth);
+    float sun = smoothstep(0.85, 1.0, lum);
+    col += vec3(0.8, 0.7, 0.5) * sun * sky * 0.08;
 
     // =========================
-    // WET & DAMP SURFACES (IMPROVED)
+    // WET SURFACES
     // =========================
-
-    // Ground approximation
     float ground = smoothstep(0.5, 1.0, depth);
-
     float brightness = dot(col, vec3(0.299, 0.587, 0.114));
 
-    // Wetness mask
     float wet = ground * (1.0 - brightness);
 
-    // --- Darkening (absorption) ---
     col *= mix(1.0, 0.68, wet);
 
-    // --- Cooler damp tint ---
     vec3 dampTint = vec3(0.0, 0.06, 0.1);
     col += dampTint * wet * 0.5;
-
-    // --- Soft specular highlight ---
-    float spec = pow(max(0.0, 1.0 - brightness), 2.5);
-    spec *= wet;
-
 
     // =========================
     // VIGNETTE
@@ -116,20 +131,16 @@ col += vec3(0.8, 0.7, 0.5) * sun * sky * 0.08;
     col *= vignette;
 
     // =========================
-    // CORDYCEPS SPORES (SCREEN SPACE)
+    // SPORES
     // =========================
-
     vec3 spores = vec3(0.0);
 
-    // Density control
     float density = 100.0;
     float speed = 0.01;
 
-    // Loop (small for performance)
     for (int i = 0; i < 16; i++) {
         float fi = float(i);
 
-        // Random position pattern
         float localSpeed = speed * (0.5 + fract(fi * 0.37));
 
         vec2 pos = fract(vec2(
@@ -137,26 +148,21 @@ col += vec3(0.8, 0.7, 0.5) * sun * sky * 0.08;
             cos(fi * 78.233 + frameTimeCounter * localSpeed * 0.8)
         ));
 
-        // Scale across screen
         pos = fract(pos * density);
 
-        // Distance to current pixel
         float d = distance(uv, pos);
 
-        // Small glowing particle
         float particle = smoothstep(0.01, 0.0, d);
 
-        // Only visible in darker areas
         float visibility = smoothstep(0.6, 0.2, lum);
 
         spores += particle * visibility;
-        }
+    }
 
-    // Color (slightly warm fungal tone)
     vec3 sporeColor = vec3(0.9, 0.85, 0.7);
 
-    // Apply subtly
-    col += spores * sporeColor * 0.08;
+    // Make spores glow in flashlight beam
+    col += spores * sporeColor * (0.08 + flashlight * 0.3);
 
     // =========================
     // FILM GRAIN
